@@ -6,11 +6,19 @@
  */
 
 #include "AudioTools.h"
+#include "AudioLibs/Communication.h"
 
-uint16_t sample_rate = 44100;
-uint16_t channels = 2;
-I2SStream in;
-StreamCopy copier(in, in); // copies sound into i2s
+uint16_t sample_rate = 10000;
+uint16_t channels = 1;
+I2SStream pModI2s;
+
+UDPStream udp;
+Throttle throttle;
+IPAddress udpAddress(192, 168, 1, 255);
+const int udpPort = 7000;
+StreamCopy copier(udp, pModI2s); // copies i2s sound into udp
+const char *ssid = "guest24";
+const char *password = "backyard";
 
 // Arduino Setup
 void setup(void)
@@ -21,8 +29,18 @@ void setup(void)
   // change to Warning to improve the quality
   AudioLogger::instance().begin(Serial, AudioLogger::Error);
 
+  // connect to WIFI
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.println(WiFi.localIP());
+
   // start I2S in
-  auto config = in.defaultConfig(RXTX_MODE);
+  auto config = pModI2s.defaultConfig(RXTX_MODE);
   config.sample_rate = sample_rate;
   config.bits_per_sample = 16;
   config.i2s_format = I2S_STD_FORMAT;
@@ -34,13 +52,22 @@ void setup(void)
   config.pin_data_rx = 17;
   config.pin_mck = 0;
   config.use_apll = true;
-  in.begin(config);
+  pModI2s.begin(config);
 
-  Serial.println("I2S started...");
+  // Define udp address and port
+  Serial.println("starting udp...");
+  udp.begin(udpAddress, udpPort);
+
+  auto cfg = throttle.defaultConfig();
+  cfg.channels = channels;
+  cfg.sample_rate = sample_rate;
+  throttle.begin(cfg);
 }
 
 // Arduino loop - copy sound to out
 void loop()
 {
-  copier.copy();
+  throttle.startDelay();
+  int bytes = copier.copy();
+  throttle.delayBytes(bytes);
 }
